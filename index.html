@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FSRS Scratch Calculator</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+:root{
+  --bg:#14120F; --surface:#1E1B17; --surface-2:#262220; --border:#33302B;
+  --text:#EDE7DA; --muted:#9C9488; --gold:#D4A24E; --green:#7FA37A; --red:#C1666B; --blue:#6C93B0;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;padding:24px 18px;}
+.wrap{max-width:480px;margin:0 auto;}
+h1{font-family:'IBM Plex Mono',monospace;font-size:17px;color:var(--gold);margin:0 0 4px;}
+.sub{color:var(--muted);font-size:12px;margin-bottom:18px;}
+.card{background:var(--surface);border:1px solid var(--border);padding:16px;margin-bottom:12px;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;}
+.field input,.field select{width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:8px;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+.newcard{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin-bottom:14px;}
+.grade-row{display:flex;gap:6px;margin-bottom:4px;}
+.grade-row button{flex:1;font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:9px 4px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);cursor:pointer;}
+.grade-row button.again:hover,.grade-row button.again.active{border-color:var(--red);color:var(--red);}
+.grade-row button.hard:hover,.grade-row button.hard.active{border-color:#b08a4a;color:#e0b56c;}
+.grade-row button.good:hover,.grade-row button.good.active{border-color:var(--green);color:var(--green);}
+.grade-row button.easy:hover,.grade-row button.easy.active{border-color:var(--blue);color:var(--blue);}
+.results{display:none;}
+.results.show{display:block;}
+.rrow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed var(--border);font-family:'IBM Plex Mono',monospace;font-size:13px;}
+.rrow:last-child{border-bottom:none;}
+.rrow .lbl{color:var(--muted);}
+.rrow .val{color:var(--gold);font-weight:600;}
+.copyhint{font-size:11px;color:var(--muted);margin-top:10px;font-family:'IBM Plex Mono',monospace;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FSRS SCRATCH CALC</h1>
+  <div class="sub">Compute new Stability / Difficulty / Due date — type the results into Notion.</div>
+
+  <div class="card">
+    <div class="newcard">
+      <input type="checkbox" id="isNew"> <label for="isNew" style="margin:0;">This is a brand-new problem (no prior Stability/Difficulty)</label>
+    </div>
+
+    <div id="priorFields">
+      <div class="field"><label>Current Stability (days)</label><input type="number" id="S" step="0.01" value="3.0"></div>
+      <div class="field"><label>Current FSRS Difficulty (1–10)</label><input type="number" id="D" step="0.01" value="5.3"></div>
+      <div class="field"><label>Days since Last Review</label><input type="number" id="t" step="1" value="3"></div>
+    </div>
+
+    <div class="field" style="margin-bottom:6px;"><label>How did the review go?</label></div>
+    <div class="grade-row">
+      <button class="again" data-g="1">Again</button>
+      <button class="hard" data-g="2">Hard</button>
+      <button class="good" data-g="3">Good</button>
+      <button class="easy" data-g="4">Easy</button>
+    </div>
+  </div>
+
+  <div class="card results" id="results">
+    <div class="rrow"><span class="lbl">Retrievability at review</span><span class="val" id="r_R">—</span></div>
+    <div class="rrow"><span class="lbl">New Stability</span><span class="val" id="r_S">—</span></div>
+    <div class="rrow"><span class="lbl">New FSRS Difficulty</span><span class="val" id="r_D">—</span></div>
+    <div class="rrow"><span class="lbl">Next interval</span><span class="val" id="r_I">—</span></div>
+    <div class="rrow"><span class="lbl">Due date</span><span class="val" id="r_Due">—</span></div>
+    <div class="copyhint">Paste Stability + FSRS Difficulty + Due into the Notion row. Retention Est. will keep decaying on its own.</div>
+  </div>
+</div>
+
+<script>
+const W = [0.4072,1.1829,3.1262,15.4722,7.2102,0.5316,1.0651,0.0234,1.616,0.1544,
+           1.0824,1.9813,0.0953,0.2975,2.2042,0.2407,2.9466,0.5034,0.6567];
+const DECAY=-0.5, FACTOR=Math.pow(0.9,1/DECAY)-1;
+
+function retrievability(S,t){ if(S<=0) return 0; return Math.pow(1+FACTOR*t/S, DECAY); }
+function initStability(g){ return Math.max(W[g-1],0.1); }
+function initDifficulty(g){ return Math.min(Math.max(W[4]-Math.exp(W[5]*(g-1))+1,1),10); }
+function nextDifficulty(D,g){
+  const Dp = D + (-W[6]*(g-3))*(10-D)/9;
+  const D0good = initDifficulty(3);
+  return Math.min(Math.max(W[7]*D0good+(1-W[7])*Dp,1),10);
+}
+function nextStabilitySuccess(D,S,R,g){
+  const hardP = g===2?W[15]:1, easyB = g===4?W[16]:1;
+  return S*(1+Math.exp(W[8])*(11-D)*Math.pow(S,-W[9])*(Math.exp((1-R)*W[10])-1)*hardP*easyB);
+}
+function nextStabilityFail(D,S,R){
+  return W[11]*Math.pow(D,-W[12])*(Math.pow(S+1,W[13])-1)*Math.exp((1-R)*W[14]);
+}
+function nextIntervalDays(S,retention){
+  retention = retention||0.9;
+  return Math.max(1, Math.round((S/FACTOR)*(Math.pow(retention,1/DECAY)-1)));
+}
+
+const isNewCb = document.getElementById('isNew');
+const priorFields = document.getElementById('priorFields');
+isNewCb.addEventListener('change', ()=>{ priorFields.style.display = isNewCb.checked ? 'none' : 'block'; });
+
+document.querySelectorAll('.grade-row button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.grade-row button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    compute(parseInt(btn.dataset.g));
+  });
+});
+
+function compute(g){
+  let R, S_new, D_new;
+  if(isNewCb.checked){
+    R = null;
+    S_new = initStability(g);
+    D_new = initDifficulty(g);
+  } else {
+    const S = parseFloat(document.getElementById('S').value)||0.1;
+    const D = parseFloat(document.getElementById('D').value)||5;
+    const t = parseFloat(document.getElementById('t').value)||0;
+    R = retrievability(S,t);
+    D_new = nextDifficulty(D,g);
+    S_new = g===1 ? nextStabilityFail(D_new,S,R) : nextStabilitySuccess(D_new,S,R,g);
+    S_new = Math.max(S_new,0.1);
+  }
+  const interval = g===1 ? 1 : nextIntervalDays(S_new,0.9);
+  const due = new Date(); due.setDate(due.getDate()+interval);
+  const dueStr = due.toISOString().slice(0,10);
+
+  document.getElementById('r_R').textContent = R===null ? 'n/a (new card)' : Math.round(R*100)+'%';
+  document.getElementById('r_S').textContent = S_new.toFixed(2)+' days';
+  document.getElementById('r_D').textContent = D_new.toFixed(2);
+  document.getElementById('r_I').textContent = interval+' day'+(interval===1?'':'s');
+  document.getElementById('r_Due').textContent = dueStr;
+  document.getElementById('results').classList.add('show');
+}
+</script>
+</body>
+</html>
